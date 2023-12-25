@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Security;
 using System.Text;
@@ -47,6 +48,10 @@ namespace NHibernate.Engine
 
 		// Identity map of EntityEntry instances, by the entity instance
 		private readonly IDictionary entityEntries;
+
+		// Entities from entityEntries with LockMode!=Lock.None
+		[NonSerialized]
+		private HashSet<EntityEntry> entityEntriesToUnLock;
 
 		// Entity proxies, by EntityKey
 		private readonly Dictionary<EntityKey, INHibernateProxy> proxiesByKey;
@@ -130,6 +135,18 @@ namespace NHibernate.Engine
 			loadContexts = null;
 			nullAssociations = new HashSet<AssociationKey>();
 			nonlazyCollections = new List<IPersistentCollection>(InitCollectionSize);
+			entityEntriesToUnLock = new HashSet<EntityEntry>(ReferenceComparer<EntityEntry>.Instance);
+			try
+			{
+				foreach (var entry in entityEntries.Values.OfType<EntityEntry>())
+				{
+					AfterEntryLockModeChangedCallback(entry);
+				}
+			}
+			catch (NullReferenceException)
+			{
+				// we ignore NRE, it can be thrown from SequencedHashMap's enumerator after a deserialization (according to unit tests)
+			}
 		}
 
 		#region IPersistenceContext Members
@@ -262,6 +279,7 @@ namespace NHibernate.Engine
 			entitiesByKey.Clear();
 			entitiesByUniqueKey.Clear();
 			entityEntries.Clear();
+			entityEntriesToUnLock.Clear();
 			entitySnapshotsByKey.Clear();
 			collectionsByKey.Clear();
 			collectionEntries.Clear();
@@ -311,11 +329,28 @@ namespace NHibernate.Engine
 			SetHasNonReadOnlyEnties(status);
 		}
 
+		internal void AfterEntryLockModeChangedCallback(EntityEntry entry)
+		{
+			if (entry == null)
+			{
+				return;
+			}
+
+			if (entry.LockMode == LockMode.None)
+			{
+				entityEntriesToUnLock.Remove(entry);
+			}
+			else
+			{
+				entityEntriesToUnLock.Add(entry);
+			}
+		}
+
 		/// <summary> Called after transactions end</summary>
 		public void AfterTransactionCompletion()
 		{
 			// Downgrade locks
-			foreach (EntityEntry entityEntry in entityEntries.Values)
+			foreach (EntityEntry entityEntry in entityEntriesToUnLock.ToArray())
 				entityEntry.LockMode = LockMode.None;
 		}
 
@@ -494,6 +529,10 @@ namespace NHibernate.Engine
 		{
 			EntityEntry tempObject = (EntityEntry)entityEntries[entity];
 			entityEntries.Remove(entity);
+			if (tempObject != null)
+			{
+				entityEntriesToUnLock.Remove(tempObject);
+			}
 			return tempObject;
 		}
 
@@ -543,6 +582,7 @@ namespace NHibernate.Engine
 		{
 			EntityEntry e =
 				new EntityEntry(status, loadedState, rowId, id, version, lockMode, existsInDatabase, persister,
+								this,
 								disableVersionIncrement, lazyPropertiesAreUnfetched);
 			entityEntries[entity] = e;
 
@@ -560,6 +600,7 @@ namespace NHibernate.Engine
 		{
 			EntityEntry e =
 				new EntityEntry(status, loadedState, rowId, id, version, lockMode, existsInDatabase, persister,
+								this,
 				                disableVersionIncrement);
 			entityEntries[entity] = e;
 
@@ -1386,6 +1427,10 @@ namespace NHibernate.Engine
 			object tempObject2 = entityEntries[entity];
 			entityEntries.Remove(entity);
 			var oldEntry = (EntityEntry) tempObject2;
+			if (oldEntry != null)
+			{
+				entityEntriesToUnLock.Remove(oldEntry);
+			}
 			parentsByChild.Clear();
 
 			var newKey = Session.GenerateEntityKey(generatedId, oldEntry.Persister);
@@ -1503,6 +1548,7 @@ namespace NHibernate.Engine
 				try
 				{
 					e.Persister = session.Factory.GetEntityPersister(e.EntityName);
+					e.SetPersistenceContext(this);
 				}
 				catch (MappingException me)
 				{

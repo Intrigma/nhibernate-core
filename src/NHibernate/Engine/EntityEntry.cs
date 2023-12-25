@@ -24,6 +24,9 @@ namespace NHibernate.Engine
 		[NonSerialized]
 		private IEntityPersister persister; // for convenience to save some lookups
 
+		[NonSerialized]
+		private StatefulPersistenceContext persistenceContext; // for calling back when LockMode has changed
+
 		private readonly string entityName;
 		private EntityKey cachedEntityKey;
 		private readonly bool isBeingReplicated;
@@ -43,14 +46,16 @@ namespace NHibernate.Engine
 		/// <param name="lockMode">The <see cref="LockMode"/> for the Entity.</param>
 		/// <param name="existsInDatabase">A boolean indicating if the Entity exists in the database.</param>
 		/// <param name="persister">The <see cref="IEntityPersister"/> that is responsible for this Entity.</param>
+		/// <param name="persistenceContext"></param>
 		/// <param name="disableVersionIncrement"></param>
 		/// <param name="lazyPropertiesAreUnfetched"></param>
 		// Since 5.3
 		[Obsolete("Use the constructor without lazyPropertiesAreUnfetched parameter")]
 		internal EntityEntry(Status status, object[] loadedState, object rowId, object id, object version, LockMode lockMode,
 		                     bool existsInDatabase, IEntityPersister persister,
+		                     StatefulPersistenceContext persistenceContext,
 		                     bool disableVersionIncrement, bool lazyPropertiesAreUnfetched)
-			:this(status, loadedState, rowId, id, version, lockMode, existsInDatabase, persister, disableVersionIncrement)
+			:this(status, loadedState, rowId, id, version, lockMode, existsInDatabase, persister, persistenceContext, disableVersionIncrement)
 		{
 			loadedWithLazyPropertiesUnfetched = lazyPropertiesAreUnfetched;
 		}
@@ -66,9 +71,11 @@ namespace NHibernate.Engine
 		/// <param name="lockMode">The <see cref="LockMode"/> for the Entity.</param>
 		/// <param name="existsInDatabase">A boolean indicating if the Entity exists in the database.</param>
 		/// <param name="persister">The <see cref="IEntityPersister"/> that is responsible for this Entity.</param>
+		/// <param name="persistenceContext"></param>
 		/// <param name="disableVersionIncrement"></param>
 		internal EntityEntry(Status status, object[] loadedState, object rowId, object id, object version, LockMode lockMode,
 			bool existsInDatabase, IEntityPersister persister,
+			StatefulPersistenceContext persistenceContext,
 			bool disableVersionIncrement)
 		{
 			this.status = status;
@@ -83,6 +90,7 @@ namespace NHibernate.Engine
 			isBeingReplicated = disableVersionIncrement;
 			this.persister = persister;
 			entityName = persister == null ? null : persister.EntityName;
+			SetPersistenceContext(persistenceContext);
 		}
 
 		/// <summary>
@@ -92,7 +100,11 @@ namespace NHibernate.Engine
 		public LockMode LockMode
 		{
 			get { return lockMode; }
-			set { lockMode = value; }
+			set
+			{
+				lockMode = value;
+				persistenceContext?.AfterEntryLockModeChangedCallback(this);
+			}
 		}
 
 		/// <summary>
@@ -180,6 +192,12 @@ namespace NHibernate.Engine
 		{
 			get { return persister; }
 			internal set { persister = value; } // For deserialization callback
+		}
+
+		internal void SetPersistenceContext(StatefulPersistenceContext persistenceContext)
+		{
+			this.persistenceContext = persistenceContext;
+			persistenceContext.AfterEntryLockModeChangedCallback(this);
 		}
 
 		/// <summary>
