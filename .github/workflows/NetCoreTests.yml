@@ -1,6 +1,9 @@
 name: .NET Core
 
-on: [push, pull_request]
+on:
+  push:
+    paths-ignore:
+      - azure-pipelines.yml
 
 jobs:
   db:

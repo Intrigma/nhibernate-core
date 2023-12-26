@@ -1,0 +1,50 @@
+name: $(Build.DefinitionName)_$(SourceBranchName)_$(Date:yyyyMMdd)_$(BuildId)
+
+variables:
+- name: nhibernateVersion
+  value: '5.5.0'
+
+trigger:
+  batch: true
+  paths:
+    exclude:
+    - .github\
+    - '*.md'
+    - '*.txt'
+    - .deepsource.toml
+    - .editorconfig
+    - .gitattributes
+    - .gitignore
+    - appveyor.yml
+    - teamcity.build
+
+jobs:
+- job: buildAndPushJob
+  displayName: build & push
+  pool:
+    name: Azure Pipelines
+    vmImage: windows-2022
+  variables:
+    nugetVersion: '6.8.0'
+  steps:
+  - task: NuGetToolInstaller@1
+    displayName: use nuget $(nugetVersion)
+    inputs:
+      versionSpec: $(nugetVersion)
+
+  - script: '%NANT% -D:project.config=release build'
+    displayName: nant build
+    env:
+      NANT: Tools\nant\bin\NAnt.exe -t:net-4.0
+      VersionSuffix: intrigma
+      BuildNumber: $(Build.BuildId)
+
+  - publish: build\NHibernate-$(nhibernateVersion)\nuget_gallery\
+    artifact: nuget
+
+  - task: NuGetCommand@2
+    displayName: nuget push
+    inputs:
+      command: push
+      packagesToPush: build\NHibernate-$(nhibernateVersion)\nuget_gallery\*.nupkg
+      publishVstsFeed: '1c3dcfc9-2387-40ff-9157-0a88324bb365/5b74d164-ff9b-4310-8890-95ea010353d1' # iss-dev feed
