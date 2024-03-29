@@ -6,6 +6,7 @@ using NHibernate.SqlTypes;
 using System.Collections.Generic;
 using System.Data;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace NHibernate.Type
 {
@@ -16,6 +17,9 @@ namespace NHibernate.Type
 	[Serializable]
 	public partial class Int32Type : PrimitiveType, IDiscriminatorType, IVersionType
 	{
+		// Took the approach from here: https://github.com/dotnet/runtime/pull/79061
+		private static readonly object[] SmallNumberCache = new object[byte.MaxValue + 1];
+
 		/// <summary></summary>
 		public Int32Type() : base(SqlTypeFactory.Int32)
 		{
@@ -27,7 +31,7 @@ namespace NHibernate.Type
 			get { return "Int32"; }
 		}
 
-		private static readonly object ZeroObject = 0;
+		private static readonly object ZeroObject = GetInt32AsObject(0);
 
 		public override object Get(DbDataReader rs, int index, ISessionImplementor session)
 		{
@@ -59,7 +63,7 @@ namespace NHibernate.Type
 					};
 				}
 
-				return value;
+				return GetInt32AsObject(value);
 			}
 			catch (Exception ex)
 			{
@@ -79,7 +83,7 @@ namespace NHibernate.Type
 
 		public override void Set(DbCommand rs, object value, int index, ISessionImplementor session)
 		{
-			rs.Parameters[index].Value = Convert.ToInt32(value);
+			rs.Parameters[index].Value = GetInt32AsObject(Convert.ToInt32(value));
 		}
 
 		// 6.0 TODO: rename "xml" parameter as "value": it is not a xml string. The fact it generally comes from a xml
@@ -101,19 +105,19 @@ namespace NHibernate.Type
 		public override object FromStringValue(string xml)
 #pragma warning restore 672
 		{
-			return Int32.Parse(xml);
+			return GetInt32AsObject(int.Parse(xml));
 		}
 
 		#region IVersionType Members
 
 		public virtual object Next(object current, ISessionImplementor session)
 		{
-			return (Int32)current + 1;
+			return GetInt32AsObject((int) current + 1);
 		}
 
 		public virtual object Seed(ISessionImplementor session)
 		{
-			return 1;
+			return GetInt32AsObject(1);
 		}
 
 		public IComparer Comparator
@@ -133,6 +137,24 @@ namespace NHibernate.Type
 		public override string ObjectToSQLString(object value, Dialect.Dialect dialect)
 		{
 			return value.ToString();
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static object GetInt32AsObject(int value)
+		{
+			// it is more likely that value is bigger than the max cached number rather than it is negative
+			if (SmallNumberCache.Length > value && value >= 0)
+			{
+				return SmallNumberCache[value] ?? CreateAndCacheObject(value);
+			}
+
+			return value;
+
+			[MethodImpl(MethodImplOptions.NoInlining)] // keep rare usage out of fast path
+			static object CreateAndCacheObject(int value)
+			{
+				return SmallNumberCache[value] = value;
+			}
 		}
 	}
 }
