@@ -27,7 +27,7 @@ namespace NHibernate.Type
 			get { return "Int32"; }
 		}
 
-		private static readonly Int32 ZERO = 0;
+		private static readonly object ZeroObject = 0;
 
 		public override object Get(DbDataReader rs, int index, ISessionImplementor session)
 		{
@@ -128,10 +128,7 @@ namespace NHibernate.Type
 			get { return typeof(Int32); }
 		}
 
-		public override object DefaultValue
-		{
-			get { return ZERO; }
-		}
+		public override object DefaultValue => ZeroObject;
 
 		public override string ObjectToSQLString(object value, Dialect.Dialect dialect)
 		{
