@@ -27,17 +27,39 @@ namespace NHibernate.Type
 			get { return "Int32"; }
 		}
 
-		private static readonly Int32 ZERO = 0;
+		private static readonly object ZeroObject = 0;
 
 		public override object Get(DbDataReader rs, int index, ISessionImplementor session)
 		{
 			try
 			{
-				return rs[index] switch
+				int value;
+
+				var fieldType = rs.GetFieldType(index);
+				if (fieldType == typeof(int))
 				{
-					BigInteger bi => (int) bi,
-					var c => Convert.ToInt32(c)
-				};
+					value = rs.GetInt32(index);
+				}
+				else if (fieldType == typeof(long))
+				{
+					value = Convert.ToInt32(rs.GetInt64(index));
+				}
+				else if (fieldType == typeof(decimal))
+				{
+					value = Convert.ToInt32(rs.GetDecimal(index));
+				}
+				else
+				{
+					// anything else we haven't thought of goes through boxing
+					value = rs[index] switch
+					{
+						// BigInteger does not implement IConvertible, but implements explicit conversion
+						BigInteger bi => (int) bi,
+						var c => Convert.ToInt32(c)
+					};
+				}
+
+				return value;
 			}
 			catch (Exception ex)
 			{
@@ -47,18 +69,7 @@ namespace NHibernate.Type
 
 		public override object Get(DbDataReader rs, string name, ISessionImplementor session)
 		{
-			try
-			{
-				return rs[name] switch
-				{
-					BigInteger bi => (int) bi,
-					var c => Convert.ToInt32(c)
-				};
-			}
-			catch (Exception ex)
-			{
-				throw new FormatException(string.Format("Input string '{0}' was not in the correct format.", rs[name]), ex);
-			}
+			return Get(rs, rs.GetOrdinal(name), session);
 		}
 
 		public override System.Type ReturnedClass
@@ -117,10 +128,7 @@ namespace NHibernate.Type
 			get { return typeof(Int32); }
 		}
 
-		public override object DefaultValue
-		{
-			get { return ZERO; }
-		}
+		public override object DefaultValue => ZeroObject;
 
 		public override string ObjectToSQLString(object value, Dialect.Dialect dialect)
 		{
