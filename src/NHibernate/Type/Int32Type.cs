@@ -33,11 +33,33 @@ namespace NHibernate.Type
 		{
 			try
 			{
-				return rs[index] switch
+				int value;
+
+				var fieldType = rs.GetFieldType(index);
+				if (fieldType == typeof(int))
 				{
-					BigInteger bi => (int) bi,
-					var c => Convert.ToInt32(c)
-				};
+					value = rs.GetInt32(index);
+				}
+				else if (fieldType == typeof(long))
+				{
+					value = Convert.ToInt32(rs.GetInt64(index));
+				}
+				else if (fieldType == typeof(decimal))
+				{
+					value = Convert.ToInt32(rs.GetDecimal(index));
+				}
+				else
+				{
+					// anything else we haven't thought of goes through boxing
+					value = rs[index] switch
+					{
+						// BigInteger does not implement IConvertible, but implements explicit conversion
+						BigInteger bi => (int) bi,
+						var c => Convert.ToInt32(c)
+					};
+				}
+
+				return value;
 			}
 			catch (Exception ex)
 			{
